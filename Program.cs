@@ -1,12 +1,32 @@
+using Microsoft.EntityFrameworkCore;
+using minimal_api.Infraestrutura.Db;
+using minimal_api.Dominio.DTOs;
+using minimal_api.Dominio.Interfaces;
+using minimal_api.Dominio.Servicos;
+using Microsoft.AspNetCore.Mvc;
+
+#region builder
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// Registra os serviços na injeção de dependências
+builder.Services.AddScoped<IAdministradorServicos, AdministradorServicos>();
+builder.Services.AddScoped<IVeiculoServicos, VeiculoServicos>(); // Certifique-se de que o nome da interface e da classe estejam corretos.
+
+// Adiciona serviços ao contêiner
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-var app = builder.Build();
+// Configuração do contexto de banco de dados
+builder.Services.AddDbContext<DbContexto>(options => 
+{
+    options.UseSqlServer(builder.Configuration.GetConnectionString("ConexaoPadrao"));
+});
 
-// Configure the HTTP request pipeline.
+var app = builder.Build();
+#endregion
+
+#region App
+// Configuração do pipeline de requisição HTTP
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -14,44 +34,52 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithOpenApi(); // Sem ponto e vírgula após este método
-
-app.MapPost("/login", (minimal_api.Dominio.DTOs.LoginDTO loginDTO) =>
-{
-    if (loginDTO.Email == "adm@test.com" && loginDTO.Senha == "123456")
-        return Results.Ok("Login Realizado com sucesso");
-    else
-        return Results.Unauthorized();
-});
-
 app.Run();
+#endregion
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
+#region Home
+app.MapGet("/", () => Results.Json(new { Message = "Bem-vindo à API!" }).WithTags("Home"));
+#endregion
 
-public class LoginDTO
+#region Administradores
+app.MapPost("/administradores/login", ([FromBody] LoginDTO loginDTO, IAdministradorServicos administradorServicos) =>
 {
-    public string Email { get; set; } = string.Empty;
-    public string Senha { get; set; } = string.Empty;
-}
+    var resultadoLogin = administradorServicos.Login(loginDTO);
+    
+    if (resultadoLogin == null)
+        return Results.BadRequest("Login ou senha inválidos.");
+
+    return Results.Ok(resultadoLogin);
+})
+.WithTags("Administradores");
+
+app.MapGet("/administradores", ([FromQuery] int? pagina, IAdministradorServicos administradorServicos) =>
+{
+    var administradores = administradorServicos.Todos(pagina);
+    return Results.Ok(administradores);
+})
+.WithTags("Administradores");
+#endregion
+
+#region Veiculos
+app.MapGet("/veiculos", ([FromQuery] string nome, IVeiculoServicos veiculoServicos) =>
+{
+    var veiculos = veiculoServicos.BuscarPorNome(nome);
+    return veiculos != null ? Results.Ok(veiculos) : Results.NotFound();
+})
+.WithTags("Veiculos");
+
+app.MapGet("/veiculos/{id}", ([FromRoute] int id, IVeiculoServicos veiculoServicos) =>
+{
+    var veiculo = veiculoServicos.BuscarPorId(id);
+    return veiculo != null ? Results.Ok(veiculo) : Results.NotFound();
+})
+.WithTags("Veiculos");
+
+app.MapPost("/veiculos", ([FromBody] VeiculoDTO veiculoDTO, IVeiculoServicos veiculoServicos) =>
+{
+    veiculoServicos.Adicionar(veiculoDTO);
+    return Results.Created($"/veiculos/{veiculoDTO.Id}", veiculoDTO);
+})
+.WithTags("Veiculos");
+#endregion
